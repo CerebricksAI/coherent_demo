@@ -175,7 +175,7 @@ def run_pipeline(
     with open(sequence_path, "w", encoding="utf-8") as f:
         json.dump(visual_sequence, f, indent=2)
 
-    if on_status:
+    if on_status and not api_mode:
         on_status("generating_wi", 75)
 
     work_instructions = ""
@@ -184,8 +184,6 @@ def run_pipeline(
 
     if api_mode:
         print("\n=== Step 4–5: Skipped for API (deferred to background after streaming) ===")
-        if on_status:
-            on_status("building_report", 90)
     else:
         print("\n=== Step 4/5: Generating work instructions ===")
         work_instructions = generate_work_instructions(

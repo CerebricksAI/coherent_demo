@@ -36,6 +36,54 @@ CLIP_WORKERS = 4
 WI_WORKERS = 5
 
 
+class MonotonicStatusEmitter:
+    """
+    Serialize status updates on the event loop and suppress stale/out-of-order
+    progress values from background pipeline threads.
+    """
+
+    def __init__(self, job_id: str, loop: asyncio.AbstractEventLoop):
+        self._job_id = job_id
+        self._loop = loop
+        self._queue: asyncio.Queue[tuple[str, int] | None] = asyncio.Queue()
+        self._last_progress = -1
+        self._drain_task: asyncio.Task | None = None
+
+    def start(self) -> None:
+        self._drain_task = asyncio.create_task(self._drain())
+
+    async def close(self) -> None:
+        await self._queue.put(None)
+        if self._drain_task is not None:
+            await self._drain_task
+
+    async def emit(self, stage: str, progress: int | None = None) -> None:
+        if progress is None:
+            progress = STAGE_PROGRESS.get(stage, 0)
+        await self._queue.put((stage, progress))
+
+    def emit_from_thread(self, stage: str, progress: int) -> None:
+        self._loop.call_soon_threadsafe(self._queue.put_nowait, (stage, progress))
+
+    def callback(self) -> StatusCallback:
+        def on_status(stage: str, progress: int) -> None:
+            self.emit_from_thread(stage, progress)
+
+        return on_status
+
+    async def _drain(self) -> None:
+        while True:
+            item = await self._queue.get()
+            if item is None:
+                return
+            stage, progress = item
+            if stage != "failed" and progress < self._last_progress:
+                continue
+            if stage != "failed":
+                self._last_progress = progress
+            await _emit_status(self._job_id, stage, progress)
+
+
 class OrderedStepEmitter:
     """
     Buffer parallel WI results and emit WebSocket steps in strict order 1, 2, 3…
@@ -100,13 +148,6 @@ async def _emit_status(job_id: str, status: str, progress: int | None = None) ->
     )
 
 
-def _make_status_callback(job_id: str, loop: asyncio.AbstractEventLoop) -> StatusCallback:
-    def on_status(stage: str, progress: int) -> None:
-        asyncio.run_coroutine_threadsafe(_emit_status(job_id, stage, progress), loop)
-
-    return on_status
-
-
 async def _clip_blob_sas_url(job_id: str, local_path: str, step_index: int) -> str | None:
     """Upload clip to Azure Blob and return a read SAS URL."""
     if not os.path.isfile(local_path):
@@ -143,10 +184,19 @@ async def _finalize_job_background(
     result: dict,
     frame_interval: float,
     step_count: int,
+    *,
+    status_emitter: MonotonicStatusEmitter | None = None,
 ) -> None:
     """Generate report, upload artifacts and clips to blob after streaming completes."""
+
+    async def _status(stage: str, progress: int | None = None) -> None:
+        if status_emitter is not None:
+            await status_emitter.emit(stage, progress)
+        else:
+            await _emit_status(job_id, stage, progress)
+
     try:
-        await _emit_status(job_id, "uploading_artifacts", 95)
+        await _status("uploading_artifacts", 95)
         video_duration = result.get("video_duration") or get_video_duration(video_path)
 
         wi_path = os.path.join(work_dir, "work_instructions.txt")
@@ -285,11 +335,10 @@ async def run_job_pipeline(
     work_dir = tempfile.mkdtemp(prefix=f"wi_job_{job_id}_")
     job_manager.set_work_dir(job_id, work_dir)
     loop = asyncio.get_running_loop()
+    status_emitter = MonotonicStatusEmitter(job_id, loop)
+    status_emitter.start()
 
     try:
-        await _emit_status(job_id, "extracting_frames")
-        on_status = _make_status_callback(job_id, loop)
-
         result = await loop.run_in_executor(
             None,
             lambda: run_pipeline(
@@ -298,13 +347,13 @@ async def run_job_pipeline(
                 frame_interval=frame_interval,
                 vision_workers=vision_workers,
                 analyze_every=analyze_every,
-                on_status=on_status,
+                on_status=status_emitter.callback(),
                 api_mode=True,
             ),
         )
 
         video_duration = result.get("video_duration") or get_video_duration(video_path)
-        await _emit_status(job_id, "processing_steps", 88)
+        await status_emitter.emit("processing_steps", 88)
 
         segment_payload = prepare_segment_payload(
             result["visual_sequence"],
@@ -379,6 +428,7 @@ async def run_job_pipeline(
             result,
             frame_interval,
             streamed_count,
+            status_emitter=status_emitter,
         )
 
     except Exception as exc:
@@ -393,3 +443,5 @@ async def run_job_pipeline(
         if cleared and os.path.isdir(cleared):
             shutil.rmtree(cleared, ignore_errors=True)
         raise
+    finally:
+        await status_emitter.close()
