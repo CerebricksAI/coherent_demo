@@ -1,0 +1,9 @@
+opencv-python
+openai
+python-dotenv
+imageio-ffmpeg
+fastapi
+uvicorn[standard]
+python-multipart
+azure-storage-blob
+pydantic
