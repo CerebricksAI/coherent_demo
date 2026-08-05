@@ -9,7 +9,7 @@ from api.routes.jobs import router as jobs_router
 load_dotenv()
 
 app = FastAPI(
-    title="Work Instructions API",
+    title="QSAID Work Instructions API",
     description="Upload factory videos, generate work instructions, stream results over WebSocket.",
     version="1.0.0",
 )
@@ -25,6 +25,17 @@ app.add_middleware(
 app.include_router(jobs_router)
 
 
+@app.get("/")
+async def root():
+    return {
+        "service": "qsaid-wi",
+        "status": "ok",
+        "health": "/health",
+        "docs": "/docs",
+        "api": "/api/v1/jobs",
+    }
+
+
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    return {"status": "ok", "service": "qsaid-wi", "version": "1.0.0"}

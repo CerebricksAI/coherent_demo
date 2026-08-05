@@ -32,10 +32,6 @@ def build_step_event(
     if not instruments:
         wi_text, instruments = extract_instruments(wi_text)
 
-    if step.get("subitems"):
-        subitems = "\n".join(f"- {s}" for s in step["subitems"])
-        wi_text = f"{wi_text}\n{subitems}".strip()
-
     return {
         "type": "step",
         "job_id": job_id,

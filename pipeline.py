@@ -1,13 +1,15 @@
 import json
 import os
+import queue
 import re
+from concurrent.futures import ThreadPoolExecutor
 from typing import Callable
 
 from audio_transcription import transcribe_video
 from azure_client import get_client, get_writer_model, print_model_config, validate_azure_config
 from key_frame_generator import extract_frames, get_video_duration
 from report_builder import build_report
-from sop_stateless import analyze_frames, consolidate_sequence
+from sop_stateless import analyze_frames_from_queue, consolidate_sequence
 from time_utils import seconds_to_timestamp
 
 
@@ -122,7 +124,7 @@ def run_pipeline(
     frame_interval: float = 1.0,
     transcript_chunk_seconds: float = 10.0,
     visual_chunk_seconds: float = 20.0,
-    vision_workers: int = 10,
+    vision_workers: int = 8,
     analyze_every: int = 1,
     on_status: Callable[[str, int], None] | None = None,
     api_mode: bool = False,
@@ -137,32 +139,45 @@ def run_pipeline(
     os.makedirs(output_dir, exist_ok=True)
     frames_dir = os.path.join(output_dir, "extracted_frames")
     os.makedirs(frames_dir, exist_ok=True)
-
-    if on_status:
-        on_status("extracting_frames", 10)
-
-    print(f"\n=== Step 1/5: Extracting frames (every {frame_interval}s) ===")
-    frame_count = extract_frames(video_path, frames_dir, interval_seconds=frame_interval)
     video_duration = get_video_duration(video_path)
     print(f"Video duration: {video_duration:.1f}s ({video_duration / 60:.1f} min)")
 
+    frame_queue: queue.Queue = queue.Queue(maxsize=64)
+    cache_path = os.path.join(output_dir, "frame_analysis_cache.json")
+
     if on_status:
+        on_status("extracting_frames", 10)
         on_status("transcribing", 30)
 
-    print("\n=== Step 2/5: Transcribing audio ===")
-    transcript = transcribe_video(video_path, output_dir)
+    print(f"\n=== Step 1–2/5: Extracting frames + transcribing in parallel ===")
+    print(f"  Frame interval: every {frame_interval}s")
 
-    if on_status:
-        on_status("analyzing_frames", 55)
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        extract_future = pool.submit(
+            extract_frames,
+            video_path,
+            frames_dir,
+            interval_seconds=frame_interval,
+            frame_queue=frame_queue,
+        )
+        transcribe_future = pool.submit(transcribe_video, video_path, output_dir)
 
-    print("\n=== Step 3/5: Analyzing frames ===")
-    cache_path = os.path.join(output_dir, "frame_analysis_cache.json")
-    raw_results = analyze_frames(
-        frames_dir,
-        workers=vision_workers,
-        analyze_every=analyze_every,
-        cache_path=cache_path,
-    )
+        if on_status:
+            on_status("analyzing_frames", 55)
+
+        print("\n=== Step 3/5: Analyzing frames (streaming, overlaps extraction) ===")
+        vision_future = pool.submit(
+            analyze_frames_from_queue,
+            frames_dir,
+            frame_queue,
+            workers=vision_workers,
+            analyze_every=analyze_every,
+            cache_path=cache_path,
+        )
+
+        frame_count = extract_future.result()
+        transcript = transcribe_future.result()
+        raw_results = vision_future.result()
     if not raw_results:
         print(
             "\nERROR: No frames were analyzed successfully.\n"
@@ -210,7 +225,7 @@ def run_pipeline(
             video_duration_sec=video_duration,
             chunk_seconds=transcript_chunk_seconds,
             visual_chunk_seconds=visual_chunk_seconds,
-            summarize_visual=True,
+            summarize_visual=False,
         )
 
         if on_status:

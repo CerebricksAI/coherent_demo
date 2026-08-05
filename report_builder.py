@@ -53,8 +53,6 @@ def _try_parse_step_line(body: str, video_duration_sec: float = 0.0) -> dict | N
     step_text = re.sub(r"\*\*\[[^\]]+\]\*\*\s*", "", body)
     step_text = _TIMESTAMP_RE.sub("", step_text)
     step_text = _clean_md_inline(step_text).strip()
-    if not step_text:
-        step_text = "View this segment in the video."
     return {
         "type": "step",
         "text": step_text,
@@ -147,7 +145,14 @@ def parse_work_instructions_blocks(text: str, video_duration_sec: float = 0.0) -
             blocks.append(step)
             continue
 
-        blocks.append({"type": "paragraph", "text": _clean_md_inline(stripped)})
+        para_text = _clean_md_inline(stripped)
+        if blocks and blocks[-1].get("type") == "step":
+            last = blocks[-1]
+            last_text = (last.get("text") or "").strip()
+            if not last_text:
+                last["text"] = para_text
+                continue
+        blocks.append({"type": "paragraph", "text": para_text})
 
     return blocks
 

@@ -1,0 +1,35 @@
+# UI — separate repo, not part of backend image
+UI/
+
+# Secrets and local env
+.env
+.env.*
+!.env.example
+
+# Python / tooling
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Git / IDE
+.git/
+.gitignore
+.github/
+.cursor/
+.vscode/
+*.md
+!DEPLOY.md
+
+# Build artifacts
+dist/
+build/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,8 +1,21 @@
 from pydantic import BaseModel, Field
 
 
+class JobCreateRequest(BaseModel):
+    filename: str
+    frame_interval: float = 1.0
+    vision_workers: int = 8
+    analyze_every: int = 1
+
+
 class JobCreateResponse(BaseModel):
     job_id: str
+    status: str = "awaiting_upload"
+
+
+class JobUploadResponse(BaseModel):
+    job_id: str
+    status: str
 
 
 class JobStatusResponse(BaseModel):

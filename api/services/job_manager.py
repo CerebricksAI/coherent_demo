@@ -15,6 +15,7 @@ class JobManager:
         self._subscribers: dict[str, list[asyncio.Queue]] = {}
         self._lock = asyncio.Lock()
         self._work_dirs: dict[str, str] = {}
+        self._local_metadata: dict[str, dict] = {}
 
     def new_job_id(self) -> str:
         return str(uuid4())
@@ -31,11 +32,13 @@ class JobManager:
         *,
         source_blob: str,
         original_filename: str,
+        pipeline: dict | None = None,
+        status: str = "queued",
     ) -> dict:
         now = datetime.now(timezone.utc).isoformat()
         metadata = {
             "job_id": job_id,
-            "status": "queued",
+            "status": status,
             "progress": 0,
             "original_filename": original_filename,
             "source_blob": source_blob,
@@ -43,25 +46,80 @@ class JobManager:
             "updated_at": now,
             "step_count": 0,
             "error": None,
+            "pipeline": pipeline or {},
         }
-        await asyncio.to_thread(blob_storage.upload_json, self.metadata_path(job_id), metadata)
+        self._local_metadata[job_id] = metadata
+        asyncio.create_task(self._persist_metadata(job_id, metadata))
         return metadata
 
-    async def update_metadata(self, job_id: str, **fields: Any) -> dict:
+    async def _persist_metadata(self, job_id: str, metadata: dict) -> None:
+        try:
+            await asyncio.to_thread(
+                blob_storage.upload_json, self.metadata_path(job_id), metadata
+            )
+        except Exception as exc:
+            print(f"WARNING: metadata blob upload failed for {job_id}: {exc}")
+
+    async def update_metadata(
+        self,
+        job_id: str,
+        *,
+        persist: bool = True,
+        **fields: Any,
+    ) -> dict:
         metadata = await self.get_metadata(job_id)
         if metadata is None:
             raise KeyError(f"Job not found: {job_id}")
         metadata.update(fields)
         metadata["updated_at"] = datetime.now(timezone.utc).isoformat()
-        await asyncio.to_thread(
-            blob_storage.upload_json, self.metadata_path(job_id), metadata
-        )
+        self._local_metadata[job_id] = metadata
+        if persist:
+            await self._persist_metadata(job_id, metadata)
+        else:
+            # Fire-and-forget so frequent progress ticks (e.g. uploading) stay fast.
+            asyncio.create_task(self._persist_metadata(job_id, dict(metadata)))
         return metadata
 
     async def get_metadata(self, job_id: str) -> dict | None:
-        return await asyncio.to_thread(
+        local = self._local_metadata.get(job_id)
+        if local is not None:
+            return dict(local)
+        data = await asyncio.to_thread(
             blob_storage.download_json, self.metadata_path(job_id)
         )
+        if data is not None:
+            self._local_metadata[job_id] = data
+        return data
+
+    async def try_start_upload(self, job_id: str) -> dict | None:
+        """
+        Atomically move a job from awaiting_upload → uploading.
+        Returns updated metadata, or None if the job is missing or not uploadable.
+        """
+        async with self._lock:
+            metadata = self._local_metadata.get(job_id)
+            if metadata is None:
+                data = await asyncio.to_thread(
+                    blob_storage.download_json, self.metadata_path(job_id)
+                )
+                if data is None:
+                    return None
+                metadata = data
+                self._local_metadata[job_id] = metadata
+
+            status = metadata.get("status", "")
+            if status not in ("awaiting_upload", "queued"):
+                return None
+
+            now = datetime.now(timezone.utc).isoformat()
+            metadata["status"] = "uploading"
+            metadata["progress"] = 1
+            metadata["updated_at"] = now
+            self._local_metadata[job_id] = dict(metadata)
+            snapshot = dict(metadata)
+
+        asyncio.create_task(self._persist_metadata(job_id, snapshot))
+        return snapshot
 
     async def subscribe(self, job_id: str) -> asyncio.Queue:
         queue: asyncio.Queue = asyncio.Queue()
