@@ -76,7 +76,7 @@ def describe_frame(image_path: str) -> str:
                     ],
                 }
             ],
-            max_tokens=150,
+            max_completion_tokens=150,
         )
         text = _clean_vision_text(response.choices[0].message.content)
         if text and not is_garbage_vision_response(text):
@@ -147,6 +147,6 @@ def summarize_visual_window(
                 ),
             },
         ],
-        max_tokens=220,
+        max_completion_tokens=220,
     )
     return _clean_vision_text(response.choices[0].message.content) or unique[0]
