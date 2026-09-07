@@ -846,7 +846,8 @@ def _generate_step_wi_gpt(segment: dict, prior_wi_summaries: list[str] | None = 
             {"role": "user", "content": prompt},
         ],
         response_format={"type": "json_object"},
-        max_completion_tokens=320,
+        temperature=0.2,
+        max_tokens=320,
     )
 
     raw = response.choices[0].message.content or "{}"
