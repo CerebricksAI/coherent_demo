@@ -1,0 +1,33 @@
+Loading detectors...
+  loaded in 2.3s
+Input: 3840x2160 @ 25.0fps, 358 frames
+  frame 30/358  (26.7s elapsed, 890 ms/frame avg)
+  frame 60/358  (51.8s elapsed, 863 ms/frame avg)
+  frame 90/358  (79.3s elapsed, 881 ms/frame avg)
+  frame 120/358  (104.2s elapsed, 868 ms/frame avg)
+  frame 150/358  (129.4s elapsed, 863 ms/frame avg)
+  frame 180/358  (156.5s elapsed, 869 ms/frame avg)
+  frame 210/358  (182.0s elapsed, 867 ms/frame avg)
+  frame 240/358  (209.4s elapsed, 872 ms/frame avg)
+  frame 270/358  (233.6s elapsed, 865 ms/frame avg)
+  frame 300/358  (270.4s elapsed, 901 ms/frame avg)
+  frame 330/358  (297.3s elapsed, 901 ms/frame avg)
+  frame 358/358  (329.0s elapsed, 919 ms/frame avg)
+
+======================================================================
+Done. 358 frames in 329.1s (919 ms/frame, CPU, no GPU)
+  SCRFD total detections:      1201
+  YOLOv11n-face detections:    1226
+  YOLOX-s person detections:   1436
+  Pairing A orphan-safetynet triggers (person, no matching face): 146
+  Pairing B agreement: both=1190 scrfd_only=11 yoloface_only=36
+  Frames with zero flagged regions - pairing A: 0, pairing B: 0
+  Per-model time: {'scrfd': 63.27, 'yoloface': 31.28, 'yolox': 89.04}
+
+Outputs written to: C:\Users\FaisalImam(QuadrantT\Downloads\CoherentDemoWI\Qsaid\scripts\..\output\office_4k
+  - detections_log.csv, summary.json
+  - pairing_a_scrfd_yolox_annotated.mp4
+  - pairing_a_scrfd_yolox_redacted.mp4
+  - pairing_b_scrfd_yoloface_annotated.mp4
+  - pairing_b_scrfd_yoloface_redacted.mp4
+======================================================================

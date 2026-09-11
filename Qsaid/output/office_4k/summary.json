@@ -1,0 +1,19 @@
+{
+  "frames": 358,
+  "scrfd_detections": 1201,
+  "yoloface_detections": 1226,
+  "person_detections": 1436,
+  "orphan_safetynet_triggers": 146,
+  "both_agree_count": 1190,
+  "scrfd_only_count": 11,
+  "yoloface_only_count": 36,
+  "frames_with_zero_faces_a": 0,
+  "frames_with_zero_faces_b": 0,
+  "per_model_time_s": {
+    "scrfd": 63.27,
+    "yoloface": 31.28,
+    "yolox": 89.04
+  },
+  "total_wallclock_s": 329.1,
+  "ms_per_frame_avg": 919.3
+}
